@@ -114,7 +114,8 @@ const ConversationRow: React.FC<{
 
     return (
         <div className="sully-message-row relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/85 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)]">
-            <div className="sully-message-actions absolute inset-y-0 right-0 flex w-[88px]">
+            {open && (
+                <div className="sully-message-actions absolute inset-y-0 right-0 flex w-[88px]">
                 <button
                     onClick={onTogglePin}
                     className={`flex-1 transition-colors ${pinned ? 'bg-violet-100 text-violet-600' : 'bg-slate-100 text-slate-500'}`}
@@ -138,6 +139,7 @@ const ConversationRow: React.FC<{
                     </div>
                 </button>
             </div>
+            )}
 
             <div
                 role="button"
@@ -153,11 +155,12 @@ const ConversationRow: React.FC<{
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
-                className="relative z-10 flex h-full min-h-[74px] items-center gap-3 bg-white/90 px-3.5 py-3 text-left"
+                className="sully-message-content relative z-10 flex h-full min-h-[74px] items-center gap-3 bg-white/90 px-3.5 py-3 text-left"
                 style={{
                     transform: `translateX(${offset}px)`,
                     touchAction: 'pan-y',
                     transition: dragging ? 'none' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)',
+                    willChange: 'transform',
                 }}
             >
                 <div className="relative shrink-0">
