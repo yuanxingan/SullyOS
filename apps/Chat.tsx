@@ -4406,8 +4406,7 @@ const Chat: React.FC = () => {
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
                     acnh={acnh}
-                onOpenMessageList={() => setShowMessageList(true)}
-             />
+                />
             </div>
 
 
