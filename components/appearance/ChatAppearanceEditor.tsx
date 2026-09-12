@@ -775,6 +775,31 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
 
             <section className={groupClass}>
                 <div className="mb-3">
+                    <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">消息列表美化 (CSS)</h2>
+                    <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                        自定义 Message 列表。根节点：<code>.sully-message-list</code>；会话卡片：<code>.sully-message-row</code>；滑动按钮：<code>.sully-message-actions</code>。
+                    </p>
+                </div>
+                <textarea
+                    value={theme.messageListCustomCss || ''}
+                    onChange={(event) => updateTheme({ messageListCustomCss: event.target.value || undefined })}
+                    rows={8}
+                    spellCheck={false}
+                    placeholder={`.sully-message-list {\n  background: linear-gradient(160deg, #fff7fb, #f2f8ff);\n}\n\n.sully-message-row {\n  border-radius: 24px;\n  background: rgba(255, 255, 255, 0.86);\n}\n\n.sully-message-actions {\n  border-radius: 0 24px 24px 0;\n}`}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-[12px] leading-6 text-slate-800 outline-none transition-all focus:border-violet-200 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                />
+                {theme.messageListCustomCss && (
+                    <button
+                        onClick={() => updateTheme({ messageListCustomCss: undefined })}
+                        className="mt-3 w-full rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[12px] font-bold text-rose-600 transition-all hover:bg-rose-100 active:scale-[0.99]"
+                    >
+                        清空消息列表美化
+                    </button>
+                )}
+            </section>
+
+            <section className={groupClass}>
+                <div className="mb-3">
                     <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">全局默认提示音</h2>
                     <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
                         某角色没单独设提示音时，收到 ta 的新消息就用这里的默认音。角色自己在「＋」菜单「提示音」里设的会盖过全局。

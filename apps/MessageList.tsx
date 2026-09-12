@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
 import { Message, CharacterProfile } from '../types';
 import { DB } from '../utils/db';
@@ -35,14 +35,165 @@ interface ConversationSummary {
     unreadCount: number;
 }
 
+const SWIPE_ACTION_WIDTH = 88;
+
+const ConversationRow: React.FC<{
+    conv: ConversationSummary;
+    pinned: boolean;
+    open: boolean;
+    onOpenChange: (charId: string | null) => void;
+    onSelect: () => void;
+    onTogglePin: () => void;
+    onDelete: () => void;
+    formatTime: (timestamp: number) => string;
+    getMessagePreview: (message: Message | null) => string;
+}> = ({ conv, pinned, open, onOpenChange, onSelect, onTogglePin, onDelete, formatTime, getMessagePreview }) => {
+    const [offset, setOffset] = useState(0);
+    const [dragging, setDragging] = useState(false);
+    const offsetRef = useRef(0);
+    const dragRef = useRef<{ x: number; y: number; offset: number; moved: boolean } | null>(null);
+    const suppressClickRef = useRef(false);
+
+    const applyOffset = (next: number) => {
+        const clamped = Math.min(0, Math.max(-SWIPE_ACTION_WIDTH, next));
+        offsetRef.current = clamped;
+        setOffset(clamped);
+    };
+
+    useEffect(() => {
+        if (!open && offsetRef.current !== 0) {
+            offsetRef.current = 0;
+            setOffset(0);
+        }
+    }, [open]);
+
+    const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        dragRef.current = { x: event.clientX, y: event.clientY, offset: offsetRef.current, moved: false };
+        setDragging(true);
+        event.currentTarget.setPointerCapture(event.pointerId);
+    };
+
+    const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        const dx = event.clientX - drag.x;
+        const dy = event.clientY - drag.y;
+        if (!drag.moved && Math.abs(dy) > Math.abs(dx) * 1.2 && Math.abs(dy) > 8) {
+            dragRef.current = null;
+            setDragging(false);
+            return;
+        }
+        if (Math.abs(dx) > 6) drag.moved = true;
+        if (!drag.moved) return;
+        applyOffset(drag.offset + dx);
+    };
+
+    const handlePointerUp = () => {
+        const drag = dragRef.current;
+        dragRef.current = null;
+        setDragging(false);
+        if (!drag) return;
+        const next = Math.abs(offsetRef.current) > SWIPE_ACTION_WIDTH / 2 ? -SWIPE_ACTION_WIDTH : 0;
+        applyOffset(next);
+        onOpenChange(next < 0 ? conv.charId : null);
+        if (drag.moved) suppressClickRef.current = true;
+    };
+
+    const handleClick = () => {
+        if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+        }
+        if (open) {
+            onOpenChange(null);
+            return;
+        }
+        onSelect();
+    };
+
+    return (
+        <div className="sully-message-row relative overflow-hidden rounded-2xl border border-slate-200/60 bg-white/85 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)]">
+            <div className="sully-message-actions absolute inset-y-0 right-0 flex w-[88px]">
+                <button
+                    onClick={onTogglePin}
+                    className={`flex-1 transition-colors ${pinned ? 'bg-violet-100 text-violet-600' : 'bg-slate-100 text-slate-500'}`}
+                    title={pinned ? '取消置顶' : '置顶'}
+                    aria-label={pinned ? '取消置顶' : '置顶'}
+                >
+                    <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
+                        {pinned ? <PushPin className="w-4 h-4" weight="fill" /> : <PushPinSlash className="w-4 h-4" />}
+                        <span>{pinned ? '取消' : '置顶'}</span>
+                    </div>
+                </button>
+                <button
+                    onClick={onDelete}
+                    className="flex-1 bg-rose-50 text-rose-500 transition-colors hover:bg-rose-100"
+                    title="删除对话"
+                    aria-label="删除对话"
+                >
+                    <div className="flex flex-col items-center gap-1 text-[10px] font-bold">
+                        <Trash className="w-4 h-4" />
+                        <span>删除</span>
+                    </div>
+                </button>
+            </div>
+
+            <div
+                role="button"
+                tabIndex={0}
+                onClick={handleClick}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleClick();
+                    }
+                }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                className="relative z-10 flex h-full min-h-[74px] items-center gap-3 bg-white/90 px-3.5 py-3 text-left"
+                style={{
+                    transform: `translateX(${offset}px)`,
+                    touchAction: 'pan-y',
+                    transition: dragging ? 'none' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)',
+                }}
+            >
+                <div className="relative shrink-0">
+                    <div className="w-12 h-12 rounded-[18px] overflow-hidden bg-gradient-to-br from-violet-100 to-purple-100 border border-white shadow-inner ring-1 ring-slate-200/50">
+                        <TokenImg value={conv.charAvatar} className="w-full h-full object-cover" alt={conv.charName} />
+                    </div>
+                    {conv.unreadCount > 0 && (
+                        <div className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1.5 bg-rose-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg border-2 border-white">
+                            {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1">
+                        {pinned && <PushPin className="w-3 h-3 text-violet-500 shrink-0" weight="fill" />}
+                        <h3 className="font-semibold text-slate-900 truncate text-[15px] leading-none">{conv.charName}</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate leading-5">{getMessagePreview(conv.lastMessage)}</p>
+                </div>
+
+                <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatTime(conv.lastMessageTime)}</span>
+            </div>
+        </div>
+    );
+};
+
 const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClose: () => void }> = ({ onSelectCharacter, onClose }) => {
-    const { characters, unreadMessages, clearUnread } = useOS();
+    const { characters, unreadMessages, clearUnread, theme } = useOS();
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedIds);
     const [hiddenAt, setHiddenAt] = useState<Record<string, number>>(() => readStringMap(DELETED_CONVERSATIONS_KEY));
     const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null);
+    const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
     // 加载所有对话摘要
     useEffect(() => {
@@ -166,7 +317,8 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
     }, [deleteTarget, hiddenAt, pinnedIds]);
 
     return (
-        <div className="relative flex flex-col h-full bg-gradient-to-br from-slate-50 via-white to-violet-50/70">
+        <div className="sully-message-list relative flex flex-col h-full bg-gradient-to-br from-slate-50 via-white to-violet-50/70">
+            {theme.messageListCustomCss && <style>{theme.messageListCustomCss}</style>}
             <div className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))] pb-4 bg-white/75 backdrop-blur-xl border-b border-slate-200/60 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)]">
                 <div className="flex items-center gap-2.5 mb-4">
                     <button
@@ -214,76 +366,18 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
                 ) : (
                     <div className="p-3 space-y-2.5">
                         {filteredConversations.map((conv) => (
-                            <div
+                            <ConversationRow
                                 key={conv.charId}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => handleSelectConversation(conv.charId)}
-                                onKeyDown={(event) => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
-                                        event.preventDefault();
-                                        handleSelectConversation(conv.charId);
-                                    }
-                                }}
-                                className="w-full px-3.5 py-3 bg-white/80 hover:bg-white active:bg-white/90 transition-all rounded-2xl border border-slate-200/60 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] text-left flex items-center gap-3 cursor-pointer"
-                            >
-                                <div className="relative shrink-0">
-                                    <div className="w-12 h-12 rounded-[18px] overflow-hidden bg-gradient-to-br from-violet-100 to-purple-100 border border-white shadow-inner ring-1 ring-slate-200/50">
-                                        <TokenImg
-                                            value={conv.charAvatar}
-                                            className="w-full h-full object-cover"
-                                            alt={conv.charName}
-                                        />
-                                    </div>
-                                    {conv.unreadCount > 0 && (
-                                        <div className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1.5 bg-rose-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg border-2 border-white">
-                                            {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                        {pinnedIds.includes(conv.charId) && (
-                                            <PushPin className="w-3 h-3 text-violet-500 shrink-0" weight="fill" />
-                                        )}
-                                        <h3 className="font-semibold text-slate-900 truncate text-[15px] leading-none">
-                                            {conv.charName}
-                                        </h3>
-                                    </div>
-                                    <p className="text-xs text-slate-500 truncate leading-5">{getMessagePreview(conv.lastMessage)}</p>
-                                </div>
-
-                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatTime(conv.lastMessageTime)}</span>
-                                    <div className="flex items-center gap-0.5">
-                                        <button
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                togglePinned(conv.charId);
-                                            }}
-                                            className={`p-1.5 rounded-lg transition-colors ${pinnedIds.includes(conv.charId) ? 'text-violet-500 hover:bg-violet-50' : 'text-slate-300 hover:text-violet-500 hover:bg-violet-50'}`}
-                                            title={pinnedIds.includes(conv.charId) ? '取消置顶' : '置顶'}
-                                            aria-label={pinnedIds.includes(conv.charId) ? '取消置顶' : '置顶'}
-                                        >
-                                            {pinnedIds.includes(conv.charId)
-                                                ? <PushPin className="w-4 h-4" weight="fill" />
-                                                : <PushPinSlash className="w-4 h-4" />}
-                                        </button>
-                                        <button
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                setDeleteTarget(conv);
-                                            }}
-                                            className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                                            title="删除对话"
-                                            aria-label="删除对话"
-                                        >
-                                            <Trash className="w-4 h-4" />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                                conv={conv}
+                                pinned={pinnedIds.includes(conv.charId)}
+                                open={openSwipeId === conv.charId}
+                                onOpenChange={setOpenSwipeId}
+                                onSelect={() => handleSelectConversation(conv.charId)}
+                                onTogglePin={() => togglePinned(conv.charId)}
+                                onDelete={() => setDeleteTarget(conv)}
+                                formatTime={formatTime}
+                                getMessagePreview={getMessagePreview}
+                            />
                         ))}
                     </div>
                 )}

@@ -192,6 +192,8 @@ export interface OSTheme {
   chatChromeCustomCss?: string;
   /** 全局默认「白框提示音」：某角色未单独设提示音时回落到这里。src 同角色版（内置 key / 音频直链 / data:audio）。 */
   chatSound?: { src: string; volume?: number };
+  /** 消息列表自定义 CSS：作用于 .sully-message-list。 */
+  messageListCustomCss?: string;
   /** 隐藏顶栏的情绪 buff 栏。 */
   chatHideHeaderBuffs?: boolean;
 }
