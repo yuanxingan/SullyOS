@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretLeft, ChatCircleDots, Lightning, Stop } from '@phosphor-icons/react';
+import { CaretLeft, Lightning, Stop } from '@phosphor-icons/react';
 import { CharacterBuff, CharacterProfile } from '../../types';
 import TokenImg from '../os/TokenImg';
 
@@ -39,7 +39,6 @@ interface ChatHeaderShellProps {
     onClose: () => void;
     onTriggerAI: () => void;
     onShowCharsPanel: () => void;
-    onOpenMessageList?: () => void;
     onDeleteBuff?: (buffId: string) => void;
     /** 隐藏顶栏情绪 buff 栏（Appearance 里的「显示情绪栏」开关）。 */
     hideBuffs?: boolean;
@@ -83,7 +82,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     onClose,
     onTriggerAI,
     onShowCharsPanel,
-    onOpenMessageList,
     onDeleteBuff,
     statusText,
     extraAction,
@@ -437,16 +435,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     {!hideTrigger && <button onClick={onTriggerAI} className={`sully-chat-trigger absolute right-0 bottom-2 p-2 ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
                         {triggerIconNode}
                     </button>}
-                    {onOpenMessageList && (
-                        <button
-                            onClick={onOpenMessageList}
-                            className={`absolute ${extraAction ? 'right-20' : hideTrigger ? 'right-0' : 'right-10'} bottom-2 p-2 ${iconButtonClass}`}
-                            title="消息列表"
-                            aria-label="打开消息列表"
-                        >
-                            <ChatCircleDots className="w-5 h-5" weight="bold" />
-                        </button>
-                    )}
                     {extraAction && (
                         <button onClick={extraAction.onClick} className={`absolute right-10 bottom-2 p-2 ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}
@@ -464,16 +452,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                         {renderStandardInfo()}
                     </div>
 
-                    {onOpenMessageList && (
-                        <button
-                            onClick={onOpenMessageList}
-                            className={`p-2 ${extraAction ? '' : 'ml-auto'} ${iconButtonClass}`}
-                            title="消息列表"
-                            aria-label="打开消息列表"
-                        >
-                            <ChatCircleDots className="w-5 h-5" weight="bold" />
-                        </button>
-                    )}
                     {extraAction && (
                         <button onClick={extraAction.onClick} className={`p-2 ml-auto ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}

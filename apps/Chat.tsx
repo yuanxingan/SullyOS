@@ -136,7 +136,11 @@ type InstantToolUiStatus = {
     updatedAt?: number;
 };
 
-const Chat: React.FC = () => {
+interface ChatProps {
+    onOpenMessageList?: () => void;
+}
+
+const Chat: React.FC<ChatProps> = ({ onOpenMessageList }) => {
     const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
@@ -165,7 +169,6 @@ const Chat: React.FC = () => {
     // 初值 false 让首次打开也是淡入、且不会有"先显示再变透明"的闪烁。
     // 角色切换「登场」过场是否显示。切换/进入角色时由 useLayoutEffect 在绘制前置真，覆盖住加载、避免闪到新聊天。
     const [showEntry, setShowEntry] = useState(false);
-    const [showMessageList, setShowMessageList] = useState(false);
     const [input, setInput] = useState('');
     const [isInputFocused, setIsInputFocused] = useState(false);
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
@@ -3444,19 +3447,6 @@ const Chat: React.FC = () => {
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, inputPreferences]);
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
     
-    // 消息列表视图快速返回
-    if (showMessageList && activeApp === AppID.Chat) {
-        return (
-            <MessageList
-                onSelectCharacter={(charId) => {
-                    setActiveCharacterId(charId);
-                    setShowMessageList(false);
-                }}
-                onClose={() => setShowMessageList(false)}
-            />
-        );
-    }
-
     const autoReply = useChatAutoReply({
         enabled: inputPreferences.autoReply,
         conversationId: activeCharacterId || null,
@@ -3905,7 +3895,7 @@ const Chat: React.FC = () => {
                 memoryPalaceStatusText={memoryPalaceStatus}
                 lastTokenUsage={lastTokenUsage}
                 tokenBreakdown={tokenBreakdown}
-                onClose={closeApp}
+                onClose={onOpenMessageList ?? closeApp}
                 onTriggerAI={handleManualTrigger}
                 hideTrigger={inputPreferences.sendButtonGenerates}
                 onShowCharsPanel={() => setShowPanel('chars')}
@@ -3924,8 +3914,7 @@ const Chat: React.FC = () => {
                 chromeStyle={osTheme.chatChromeStyle}
                 hideBuffs={osTheme.chatHideHeaderBuffs}
                 acnh={acnh}
-                onOpenMessageList={() => setShowMessageList(true)}
-             />
+                />
 
             {/* 认知消化结果弹窗 — 全屏玻璃拟态 */}
             {lastDigestResult && (() => {
@@ -4786,7 +4775,26 @@ const Chat: React.FC = () => {
     );
 };
 
-export default Chat;
+const ChatWithMessageList: React.FC = () => {
+    const { closeApp, setActiveCharacterId } = useOS();
+    const [showMessageList, setShowMessageList] = useState(true);
+
+    if (showMessageList) {
+        return (
+            <MessageList
+                onSelectCharacter={(charId) => {
+                    setActiveCharacterId(charId);
+                    setShowMessageList(false);
+                }}
+                onClose={closeApp}
+            />
+        );
+    }
+
+    return <Chat onOpenMessageList={() => setShowMessageList(true)} />;
+};
+
+export default ChatWithMessageList;
 
 
 
