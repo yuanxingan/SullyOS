@@ -1,9 +1,29 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
 import { Message, CharacterProfile } from '../types';
 import { DB } from '../utils/db';
 import TokenImg from '../components/os/TokenImg';
-import { MagnifyingGlass, CaretLeft } from '@phosphor-icons/react';
+import { MagnifyingGlass, CaretLeft, ChatCircleDots, PushPin, PushPinSlash, Trash } from '@phosphor-icons/react';
+
+const PINNED_CONVERSATIONS_KEY = 'sully-os.message-list.pins.v1';
+const DELETED_CONVERSATIONS_KEY = 'sully-os.message-list.hidden.v1';
+
+const readStringMap = (key: string): Record<string, number> => {
+    try {
+        return JSON.parse(localStorage.getItem(key) || '{}');
+    } catch {
+        return {};
+    }
+};
+
+const readPinnedIds = (): string[] => {
+    try {
+        const value = JSON.parse(localStorage.getItem(PINNED_CONVERSATIONS_KEY) || '[]');
+        return Array.isArray(value) ? value.filter(id => typeof id === 'string') : [];
+    } catch {
+        return [];
+    }
+};
 
 interface ConversationSummary {
     charId: string;
@@ -20,6 +40,9 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
     const [conversations, setConversations] = useState<ConversationSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [pinnedIds, setPinnedIds] = useState<string[]>(readPinnedIds);
+    const [hiddenAt, setHiddenAt] = useState<Record<string, number>>(() => readStringMap(DELETED_CONVERSATIONS_KEY));
+    const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null);
 
     // 加载所有对话摘要
     useEffect(() => {
@@ -46,8 +69,12 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
                     });
                 }
 
-                // 按最后消息时间倒序排列
-                summaries.sort((a, b) => b.lastMessageTime - a.lastMessageTime);
+                summaries.sort((a, b) => {
+                    const aPinned = pinnedIds.includes(a.charId) ? 1 : 0;
+                    const bPinned = pinnedIds.includes(b.charId) ? 1 : 0;
+                    if (aPinned !== bPinned) return bPinned - aPinned;
+                    return b.lastMessageTime - a.lastMessageTime;
+                });
                 setConversations(summaries);
             } catch (error) {
                 console.error('Failed to load conversations:', error);
@@ -57,17 +84,25 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
         };
 
         loadConversations();
-    }, [characters, unreadMessages]);
+    }, [characters, unreadMessages, pinnedIds]);
 
     // 过滤对话
     const filteredConversations = useMemo(() => {
-        if (!searchQuery.trim()) return conversations;
         const q = searchQuery.toLowerCase();
         return conversations.filter(
-            conv => conv.charName.toLowerCase().includes(q) ||
-                    conv.lastMessage?.content.toLowerCase().includes(q)
+            conv => {
+                const deletedAt = hiddenAt[conv.charId];
+                const isVisibleAfterDelete = !deletedAt
+                    || pinnedIds.includes(conv.charId)
+                    || conv.lastMessageTime > deletedAt
+                    || conv.unreadCount > 0;
+                if (!isVisibleAfterDelete) return false;
+                if (!searchQuery.trim()) return true;
+                return conv.charName.toLowerCase().includes(q) ||
+                        conv.lastMessage?.content.toLowerCase().includes(q);
+            }
         );
-    }, [conversations, searchQuery]);
+    }, [conversations, searchQuery, hiddenAt, pinnedIds]);
 
     // 格式化时间显示
     const formatTime = (timestamp: number) => {
@@ -100,11 +135,40 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
         onSelectCharacter(charId);
     };
 
+    const persistPinnedIds = (nextIds: string[]) => {
+        localStorage.setItem(PINNED_CONVERSATIONS_KEY, JSON.stringify(nextIds));
+        setPinnedIds(nextIds);
+    };
+
+    const togglePinned = (charId: string) => {
+        const nextIds = pinnedIds.includes(charId)
+            ? pinnedIds.filter(id => id !== charId)
+            : [...pinnedIds, charId];
+        persistPinnedIds(nextIds);
+    };
+
+    const deleteConversation = useCallback(async () => {
+        if (!deleteTarget) return;
+        const deletedAt = Date.now();
+
+        try {
+            await DB.clearMessages(deleteTarget.charId);
+            const nextHiddenAt = { ...hiddenAt, [deleteTarget.charId]: deletedAt };
+            localStorage.setItem(DELETED_CONVERSATIONS_KEY, JSON.stringify(nextHiddenAt));
+            setHiddenAt(nextHiddenAt);
+            persistPinnedIds(pinnedIds.filter(id => id !== deleteTarget.charId));
+            setConversations(prev => prev.filter(conv => conv.charId !== deleteTarget.charId));
+        } catch (error) {
+            console.error('Failed to delete conversation:', error);
+        } finally {
+            setDeleteTarget(null);
+        }
+    }, [deleteTarget, hiddenAt, pinnedIds]);
+
     return (
-        <div className="flex flex-col h-full bg-gradient-to-br from-slate-50 to-slate-100">
-            {/* 顶栏 */}
-            <div className="px-4 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-200/50">
-                <div className="flex items-center gap-3 mb-3">
+        <div className="relative flex flex-col h-full bg-gradient-to-br from-slate-50 via-white to-violet-50/70">
+            <div className="px-4 pt-[max(0.85rem,env(safe-area-inset-top))] pb-4 bg-white/75 backdrop-blur-xl border-b border-slate-200/60 shadow-[0_10px_30px_-24px_rgba(15,23,42,0.45)]">
+                <div className="flex items-center gap-2.5 mb-4">
                     <button
                         onClick={onClose}
                         className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -112,7 +176,7 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
                     >
                         <CaretLeft className="w-5 h-5 text-slate-600" weight="bold" />
                     </button>
-                    <h1 className="text-lg font-bold text-slate-800">消息</h1>
+                    <h1 className="text-xl font-bold text-slate-900 tracking-tight">消息</h1>
                 </div>
                 {/* 搜索框 */}
                 <div className="relative">
@@ -122,7 +186,7 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
                         placeholder="搜索对话或消息..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 bg-slate-100 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-300"
+                        className="w-full pl-9 pr-3 py-2.5 bg-slate-100/90 rounded-xl text-sm text-slate-800 placeholder-slate-400 border border-transparent focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-200 transition-all"
                     />
                 </div>
             </div>
@@ -130,59 +194,125 @@ const MessageList: React.FC<{ onSelectCharacter: (charId: string) => void; onClo
             {/* 对话列表 */}
             <div className="flex-1 overflow-y-auto">
                 {loading ? (
-                    <div className="flex items-center justify-center h-32">
-                        <div className="text-slate-400 text-sm">加载中...</div>
+                    <div className="p-4 space-y-3">
+                        {[0, 1, 2].map(index => (
+                            <div key={index} className="h-[74px] bg-white/70 rounded-2xl border border-slate-200/60 animate-pulse" />
+                        ))}
                     </div>
                 ) : filteredConversations.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-32 text-slate-400">
-                        <div className="text-sm">
-                            {conversations.length === 0 ? '暂无对话' : '未找到匹配的对话'}
+                    <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+                        <div className="w-16 h-16 rounded-2xl bg-white shadow-sm border border-slate-200/60 flex items-center justify-center text-violet-300">
+                            <ChatCircleDots className="w-8 h-8" weight="duotone" />
                         </div>
+                        <p className="mt-4 text-sm font-semibold text-slate-600">
+                            {conversations.length === 0 ? '暂无对话' : '未找到匹配的对话'}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                            {conversations.length === 0 ? '去桌面打开 Message 开始聊天吧' : '换个关键词试试'}
+                        </p>
                     </div>
                 ) : (
-                    <div className="divide-y divide-slate-200/50">
+                    <div className="p-3 space-y-2.5">
                         {filteredConversations.map((conv) => (
-                            <button
+                            <div
                                 key={conv.charId}
+                                role="button"
+                                tabIndex={0}
                                 onClick={() => handleSelectConversation(conv.charId)}
-                                className="w-full px-4 py-3 hover:bg-white/60 active:bg-white/40 transition-colors text-left flex items-center gap-3 group"
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        handleSelectConversation(conv.charId);
+                                    }
+                                }}
+                                className="w-full px-3.5 py-3 bg-white/80 hover:bg-white active:bg-white/90 transition-all rounded-2xl border border-slate-200/60 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.35)] text-left flex items-center gap-3 cursor-pointer"
                             >
-                                {/* 头像 */}
                                 <div className="relative shrink-0">
-                                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-violet-100 to-purple-100 border border-slate-200/50">
+                                    <div className="w-12 h-12 rounded-[18px] overflow-hidden bg-gradient-to-br from-violet-100 to-purple-100 border border-white shadow-inner ring-1 ring-slate-200/50">
                                         <TokenImg
                                             value={conv.charAvatar}
                                             className="w-full h-full object-cover"
                                             alt={conv.charName}
                                         />
                                     </div>
-                                    {/* 未读红点 */}
                                     {conv.unreadCount > 0 && (
-                                        <div className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-rose-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg">
+                                        <div className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1.5 bg-rose-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg border-2 border-white">
                                             {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                                         </div>
                                     )}
                                 </div>
 
-                                {/* 对话信息 */}
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-baseline gap-2 mb-0.5">
-                                        <h3 className="font-semibold text-slate-800 truncate">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        {pinnedIds.includes(conv.charId) && (
+                                            <PushPin className="w-3 h-3 text-violet-500 shrink-0" weight="fill" />
+                                        )}
+                                        <h3 className="font-semibold text-slate-900 truncate text-[15px] leading-none">
                                             {conv.charName}
                                         </h3>
-                                        <span className="text-xs text-slate-400 shrink-0">
-                                            {formatTime(conv.lastMessageTime)}
-                                        </span>
                                     </div>
-                                    <p className="text-xs text-slate-500 truncate">
-                                        {getMessagePreview(conv.lastMessage)}
-                                    </p>
+                                    <p className="text-xs text-slate-500 truncate leading-5">{getMessagePreview(conv.lastMessage)}</p>
                                 </div>
-                            </button>
+
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{formatTime(conv.lastMessageTime)}</span>
+                                    <div className="flex items-center gap-0.5">
+                                        <button
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                togglePinned(conv.charId);
+                                            }}
+                                            className={`p-1.5 rounded-lg transition-colors ${pinnedIds.includes(conv.charId) ? 'text-violet-500 hover:bg-violet-50' : 'text-slate-300 hover:text-violet-500 hover:bg-violet-50'}`}
+                                            title={pinnedIds.includes(conv.charId) ? '取消置顶' : '置顶'}
+                                            aria-label={pinnedIds.includes(conv.charId) ? '取消置顶' : '置顶'}
+                                        >
+                                            {pinnedIds.includes(conv.charId)
+                                                ? <PushPin className="w-4 h-4" weight="fill" />
+                                                : <PushPinSlash className="w-4 h-4" />}
+                                        </button>
+                                        <button
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                setDeleteTarget(conv);
+                                            }}
+                                            className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                                            title="删除对话"
+                                            aria-label="删除对话"
+                                        >
+                                            <Trash className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         ))}
                     </div>
                 )}
             </div>
+
+            {deleteTarget && (
+                <div className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 z-50">
+                    <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-white/60 p-5">
+                        <h3 className="text-base font-bold text-slate-900">删除对话</h3>
+                        <p className="mt-2 text-sm leading-6 text-slate-500">
+                            将删除与「{deleteTarget.charName}」的私聊记录，并从列表中隐藏。角色、人设和云端设置不会被删除；收到新消息时会重新出现。
+                        </p>
+                        <div className="mt-5 flex items-center justify-end gap-2">
+                            <button
+                                onClick={() => setDeleteTarget(null)}
+                                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+                            >
+                                取消
+                            </button>
+                            <button
+                                onClick={deleteConversation}
+                                className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-rose-500 hover:bg-rose-600 active:scale-95 transition-all shadow-sm"
+                            >
+                                删除
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

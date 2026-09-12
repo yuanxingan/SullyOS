@@ -4776,8 +4776,16 @@ const Chat: React.FC<ChatProps> = ({ onOpenMessageList }) => {
 };
 
 const ChatWithMessageList: React.FC = () => {
-    const { closeApp, setActiveCharacterId } = useOS();
+    const { closeApp, setActiveCharacterId, registerBackHandler } = useOS();
     const [showMessageList, setShowMessageList] = useState(true);
+
+    useEffect(() => {
+        if (showMessageList) return;
+        return registerBackHandler(() => {
+            setShowMessageList(true);
+            return true;
+        });
+    }, [showMessageList, registerBackHandler]);
 
     if (showMessageList) {
         return (
